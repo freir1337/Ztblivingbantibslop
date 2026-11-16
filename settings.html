@@ -1,0 +1,137 @@
+<div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header las_drawer_header">
+        <div class="las_header_title">
+            <i class="fa-solid fa-sparkles las_accent_icon"></i>
+            <b>Living Characters &amp; Anti-Slop</b>
+        </div>
+        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+
+    <div class="inline-drawer-content las_settings_panel">
+        <div class="las_card las_hero_card">
+            <label class="las_switch_row" for="las_enabled">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Активная защита от слопа</span>
+                    <span class="las_switch_sub">Контроль промпта, тактильности и фоновый Хирург</span>
+                </div>
+                <input id="las_enabled" type="checkbox" class="las_checkbox" />
+            </label>
+        </div>
+
+        <div class="las_card">
+            <div class="las_card_header">
+                <i class="fa-solid fa-brain"></i>
+                <span>Живое поведение и логика</span>
+            </div>
+
+            <label class="las_switch_row" for="las_anti_slop_prompt">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Радар штампов Gemini</span>
+                    <span class="las_switch_sub">Блокирует повторы из последних сообщений чата</span>
+                </div>
+                <input id="las_anti_slop_prompt" type="checkbox" class="las_checkbox" />
+            </label>
+
+            <label class="las_switch_row" for="las_anti_bossy">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Анти-командир (равенство)</span>
+                    <span class="las_switch_sub">Убирает бытовые приказы («иди спать»), сохраняя эмоции в ссорах</span>
+                </div>
+                <input id="las_anti_bossy" type="checkbox" class="las_checkbox" />
+            </label>
+
+            <label class="las_switch_row" for="las_living_dynamics">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Инициатива и анти-позитивный биас</span>
+                    <span class="las_switch_sub">Персонаж сам двигает сюжет и не тает без причины</span>
+                </div>
+                <input id="las_living_dynamics" type="checkbox" class="las_checkbox" />
+            </label>
+
+            <label class="las_switch_row" for="las_full_body_tactile">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Органическая тактильность (всё тело)</span>
+                    <span class="las_switch_sub">Против зацикленности на руках, подбородке и голове</span>
+                </div>
+                <input id="las_full_body_tactile" type="checkbox" class="las_checkbox" />
+            </label>
+
+            <div class="las_field_box">
+                <label class="las_label" for="las_intimacy_mode">Режим допустимой близости:</label>
+                <select id="las_intimacy_mode" class="text_pole las_select">
+                    <option value="slowburn">Слоубёрн (без поцелуев до обсуждения чувств)</option>
+                    <option value="auto">Авто-определение по истории чата</option>
+                    <option value="strict_platonic">Строгая платоника (враги / друзья / семья)</option>
+                    <option value="established">Устоявшаяся пара (полная тактильность)</option>
+                </select>
+            </div>
+
+            <div class="las_field_box las_inline_field">
+                <label class="las_label" for="las_prompt_depth">Глубина инъекции (Depth):</label>
+                <input id="las_prompt_depth" type="number" class="text_pole las_num_input" min="0" max="10" step="1" />
+            </div>
+        </div>
+
+        <div class="las_card">
+            <div class="las_card_header">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Невидимый Хирург (до показа текста)</span>
+            </div>
+
+            <label class="las_switch_row" for="las_hide_streaming">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Мягкая шторка во время генерации</span>
+                    <span class="las_switch_sub">Скрывает сырой поток текста, пока идёт проверка</span>
+                </div>
+                <input id="las_hide_streaming" type="checkbox" class="las_checkbox" />
+            </label>
+
+            <label class="las_switch_row" for="las_auto_surgeon">
+                <div class="las_switch_text">
+                    <span class="las_switch_title">Авто-переписывание слопа</span>
+                    <span class="las_switch_sub">Точечно правит кринжовые фразы через generateRaw</span>
+                </div>
+                <input id="las_auto_surgeon" type="checkbox" class="las_checkbox" />
+            </label>
+        </div>
+
+        <div class="las_card">
+            <div class="las_card_header">
+                <i class="fa-solid fa-filter"></i>
+                <span>Фильтры и стоп-фразы</span>
+            </div>
+
+            <div class="las_quick_add_row">
+                <input id="las_quick_phrase" type="text" class="text_pole las_pill_input" placeholder="Быстро добавить бесячую фразу..." />
+                <button id="las_quick_add_btn" class="menu_button las_pill_btn las_primary_btn" type="button" title="Добавить в список слопа">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+            </div>
+
+            <div class="las_field_box">
+                <div class="las_label_row">
+                    <label class="las_label" for="las_slop_list">Штампы и клише Gemini:</label>
+                    <span id="las_slop_count" class="las_badge">0</span>
+                </div>
+                <textarea id="las_slop_list" class="text_pole las_textarea" rows="5" placeholder="костяшки побелели&#10;запах озона"></textarea>
+            </div>
+
+            <div class="las_field_box">
+                <div class="las_label_row">
+                    <label class="las_label" for="las_bossy_list">Бытовой командирский спам:</label>
+                    <span id="las_bossy_count" class="las_badge">0</span>
+                </div>
+                <textarea id="las_bossy_list" class="text_pole las_textarea" rows="4" placeholder="иди спать&#10;садись и рассказывай"></textarea>
+            </div>
+
+            <div class="las_button_row">
+                <button id="las_fix_last_btn" class="menu_button las_pill_btn las_primary_btn" type="button">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Переписать последний ответ
+                </button>
+                <button id="las_reset_defaults_btn" class="menu_button las_pill_btn las_secondary_btn" type="button">
+                    <i class="fa-solid fa-rotate-left"></i> Сброс
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
