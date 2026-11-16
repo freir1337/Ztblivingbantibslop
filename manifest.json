@@ -1,0 +1,12 @@
+{
+    "display_name": "Living Characters & Anti-Slop",
+    "loading_order": 15,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Tristis",
+    "version": "1.1.0",
+    "homePage": "https://github.com/freir1337/Ztblivingbantibslop",
+    "auto_update": true
+}
