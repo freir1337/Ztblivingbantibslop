@@ -1,13 +1,5 @@
-/**
- * Living Characters & Anti-Slop Engine for SillyTavern
- * Security & Privacy Guarantee:
- * - Zero external network requests (no fetch, no XMLHttpRequest, no WebSockets).
- * - Zero access to API keys, tokens, or browser credentials.
- * - Uses exclusively SillyTavern.getContext() local APIs.
- */
-
-const MODULE_NAME = 'living_anti_slop';
-const PROMPT_KEY = 'las_behavior_injection';
+const MODULE_NAME = 'living_characters_anti_slop';
+const PROMPT_KEY = 'lcas_master_prompt';
 
 const EXTENSION_PROMPT_TYPES = {
     NONE: -1,
@@ -22,790 +14,926 @@ const EXTENSION_PROMPT_ROLES = {
     ASSISTANT: 2,
 };
 
-const DEFAULT_SLOP_LIST = [
+const DEFAULT_BANNED_SLOP = [
     'костяшки побелели',
     'побелевшие костяшки',
     'до побеления костяшек',
     'запах озона',
-    'запахом озона',
-    'аромат бергамота',
-    'электрический разряд',
-    'ток пробежал',
-    'мурашки по коже',
-    'хриплым шепотом',
-    'хриплый шепот',
-    'опасно сузил глаза',
+    'бергамот',
+    'сандал и озон',
     'глаза потемнели',
-    'взгляд потемнел',
-    'прижал к стене',
-    'прижала к стене',
+    'зрачки расширились, поглощая радужку',
+    'хриплым шепотом',
+    'хриплый шёпот',
+    'надтреснутым голосом',
+    'поддел подбородок',
     'взял за подбородок',
-    'подцепил подбородок',
-    'прикусил губу до крови',
-    'сбитое дыхание',
-    'затаил дыхание',
-    'звенящая тишина',
-    'тишина стала осязаемой',
-    'играли желваки',
-    'хищная ухмылка',
-    'кривая усмешка',
-    'полуулыбка',
-    'бархатный баритон',
-    'сталь в голосе',
-    'металл в голосе',
-    'это не просто',
-    'и, возможно, только возможно',
+    'заставляя смотреть в глаза',
+    'сжал челюсть так, что заиграли желваки',
+    'желваки заиграли',
+    'прошептал в самые губы',
+    'опалил дыханием',
+    'мир сузился до одной точки',
+    'выпустил воздух, который не замечал, что сдерживал',
 ];
 
-const DEFAULT_BOSSY_LIST = [
+const DEFAULT_BOSSY_PATTERNS = [
     'иди спать',
     'марш в кровать',
-    'марш спать',
+    'живо в постель',
+    'ложись спать, это не обсуждается',
     'быстро спать',
-    'садись и рассказывай',
-    'сядь и расскажи',
-    'сядь и выслушай',
-    'пей давай',
     'ешь давай',
-    'не спорь со мной',
-    'прекрати спорить',
+    'пей давай',
+    'допивай и иди',
+    'сядь и расскажи',
+    'садись и рассказывай',
+    'возьми и сделай',
+    'прекрати сейчас же и послушай меня',
+    'не спорь со мной, просто сделай',
     'делай как я сказал',
-    'делай, что говорят',
-    'сиди смирно',
-    'давай без глупостей',
 ];
 
-const DEFAULT_TACTILE_SPAM = [
-    'коснулся щеки',
-    'погладил по щеке',
+const DEFAULT_BODY_FIXATIONS = [
     'погладил по голове',
-    'потрепал по волосам',
-    'перехватил запястье',
-    'сжал запястье',
-    'взял за подбородок',
-    'провел большим пальцем по губе',
+    'потрепал по макушке',
+    'переплел пальцы',
+    'накрыл ее ладонь своей',
+    'провел большим пальцем по скуле',
+    'провел костяшками по щеке',
+    'притянул за подбородок',
 ];
 
 const DEFAULT_SETTINGS = {
     enabled: true,
-    antiSlopPrompt: true,
+    antiSlop: true,
     antiBossy: true,
-    livingDynamics: true,
-    fullBodyTactile: true,
-    intimacyMode: 'slowburn',
-    promptDepth: 0,
-    hideStreaming: true,
-    autoSurgeon: true,
-    slopList: DEFAULT_SLOP_LIST.join('\n'),
-    bossyList: DEFAULT_BOSSY_LIST.join('\n'),
+    initiative: true,
+    bodyDiversity: true,
+    romanceStatus: 'none',
+    surgeonEnabled: true,
+    hideStreaming: false,
+    refreshMode: 'reload_chat',
+    apiMode: 'main',
+    connectionProfileId: '',
+    maxTokens: 4096,
+    promptDepth: 1,
+    customBannedSlop: DEFAULT_BANNED_SLOP.join('\n'),
+    customBossyPhrases: DEFAULT_BOSSY_PATTERNS.join('\n'),
+    customBodyFixations: DEFAULT_BODY_FIXATIONS.join('\n'),
+    customExtraRules: '',
 };
 
-let isRewriting = false;
-let activeModalTab = 'slopList';
+let isStreaming = false;
+let veilWatchdogTimer = null;
+const activeRewrites = new Set();
 
+/**
+ * Compute a lightweight string fingerprint to avoid rewriting the exact same text twice.
+ * @param {string} str
+ * @returns {string}
+ */
+function computeTextHash(str) {
+    let hash = 5381;
+    const text = String(str || '');
+    for (let i = 0; i < text.length; i++) {
+        hash = ((hash << 5) + hash) ^ text.charCodeAt(i);
+    }
+    return (hash >>> 0).toString(36) + '_' + text.length;
+}
+
+/**
+ * Retrieve extension settings merged with defaults.
+ * @returns {typeof DEFAULT_SETTINGS}
+ */
 function getSettings() {
     const context = SillyTavern.getContext();
-    if (!context.extensionSettings[MODULE_NAME]) {
-        context.extensionSettings[MODULE_NAME] = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    if (!context.extensionSettings[MODULE_NAME] || typeof context.extensionSettings[MODULE_NAME] !== 'object') {
+        context.extensionSettings[MODULE_NAME] = structuredClone(DEFAULT_SETTINGS);
     }
-
-    const settings = context.extensionSettings[MODULE_NAME];
-    for (const [key, defaultValue] of Object.entries(DEFAULT_SETTINGS)) {
-        if (typeof settings[key] !== typeof defaultValue) {
-            settings[key] = defaultValue;
+    const store = context.extensionSettings[MODULE_NAME];
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+        if (store[key] === undefined || typeof store[key] !== typeof value) {
+            store[key] = value;
         }
     }
-    return settings;
+    return store;
 }
 
+/**
+ * Split a multiline user list into clean phrases.
+ * @param {string} rawText
+ * @returns {string[]}
+ */
 function parsePhraseList(rawText) {
-    return String(rawText || '')
+    if (typeof rawText !== 'string') return [];
+    return rawText
         .split('\n')
-        .map(line => line.trim().toLowerCase())
-        .filter(Boolean);
+        .map((line) => line.trim())
+        .filter((line) => line.length >= 2);
 }
 
-function getExternalRelationshipData() {
-    const context = SillyTavern.getContext();
-    const tracker = context.chatMetadata?.relationship_tracker;
-    if (!tracker || typeof tracker !== 'object') {
-        return null;
+/**
+ * Build the master system instruction injected before each generation (100% in English).
+ * @returns {string}
+ */
+function buildSystemDirection() {
+    const settings = getSettings();
+    if (!settings.enabled) return '';
+
+    const blocks = [];
+
+    blocks.push(
+        '[LIVING CHARACTERS & ANTI-SLOP DIRECTION — MANDATORY WRITING RULES]',
+        'Write all narrative and dialogue in natural, living Russian (unless the chat language is explicitly different), following these strict behavioral and stylistic constraints:'
+    );
+
+    if (settings.antiSlop) {
+        const slopItems = parsePhraseList(settings.customBannedSlop).slice(0, 35);
+        blocks.push(
+            '1. BANNED AI CLICHES (ANTI-SLOP):',
+            '- Never use overused LLM melodrama or Gemini cliches: whitened knuckles, scent of ozone/bergamot/sandalwood/rain, darkened eyes/pupils swallowing the iris, husky/raspy whispers into lips, grabbing or tilting the chin, jaw clenching/muscles feathering, or letting out a breath they did not know they were holding.',
+            slopItems.length > 0
+                ? `- Strictly forbidden Russian phrases and their variations: ${slopItems.join('; ')}.`
+                : ''
+        );
     }
+
+    if (settings.antiBossy) {
+        const bossyItems = parsePhraseList(settings.customBossyPhrases).slice(0, 30);
+        blocks.push(
+            '2. NO BOSSY DOMESTIC COMMANDS TOWARD {{user}}:',
+            '- Do NOT use patronizing parental or micro-managing commands toward {{user}} in everyday situations or conversations (e.g., ordering {{user}} to go to sleep, eat, drink, sit down and talk, calm down, or obey "no arguments").',
+            '- Respect {{user}}\'s autonomy: offer, ask, suggest, or react in-character instead of issuing domestic orders.',
+            '- EXCEPTION FOR REAL CONFLICT: Short emotional outbursts during genuine heated arguments or fights ("Уйди!", "Не трогай меня!", "Отстань!", "Замолчи!") ARE allowed when justified by conflict.',
+            bossyItems.length > 0
+                ? `- Forbidden bossy commands: ${bossyItems.join('; ')}.`
+                : ''
+        );
+    }
+
+    if (settings.initiative) {
+        blocks.push(
+            '3. PROACTIVE PLOT INITIATIVE & NO POSITIVE BIAS:',
+            '- Do NOT act as a passive responder waiting for {{user}} to lead every scene. {{char}} must actively drive the scene forward: introduce new actions, environmental changes, unexpected details, or concrete proposals.',
+            '- Eliminate AI positive bias: {{char}} does not exist to please, validate, or immediately forgive {{user}}. Maintain {{char}}\'s own motives, skepticism, annoyance, or boundaries when appropriate.',
+            '- Maintain emotional continuity: transition between moods gradually and logically without abrupt personality swings.'
+        );
+    }
+
+    if (settings.bodyDiversity) {
+        const bodyItems = parsePhraseList(settings.customBodyFixations).slice(0, 25);
+        const romanceRule =
+            settings.romanceStatus === 'established'
+                ? '- Romantic status: Established couple. Kisses are allowed only when natural for the moment, without repetitive chin-grabbing.'
+                : '- Romantic status: NO established romance. Strictly FORBID sudden kisses on the lips, pinning {{user}} to walls/surfaces, or invading intimate space without explicit mutual build-up.';
+
+        blocks.push(
+            '4. ANATOMICAL & KINETIC DIVERSITY (FULL-BODY ACTING):',
+            '- Stop fixating exclusively on {{user}}\'s hands, fingers, cheeks, chin, or patting the head.',
+            '- Use full-body spatial language and varied posture: shoulders, elbows, forearms, back, ribs, collarbones, knees, shifting weight, leaning against furniture, stepping back, keeping distance, or interacting with props in the room.',
+            romanceRule,
+            bodyItems.length > 0
+                ? `- Avoid overused touch cliches: ${bodyItems.join('; ')}.`
+                : ''
+        );
+    }
+
+    if (settings.customExtraRules && settings.customExtraRules.trim().length > 0) {
+        blocks.push('5. ADDITIONAL USER RULES:', settings.customExtraRules.trim());
+    }
+
+    return blocks.filter(Boolean).join('\n');
+}
+
+/**
+ * Sync the extension prompt with SillyTavern's prompt manager.
+ */
+function updateInjectedPrompt() {
+    try {
+        const context = SillyTavern.getContext();
+        const settings = getSettings();
+        if (typeof context.setExtensionPrompt !== 'function') return;
+
+        if (!settings.enabled) {
+            context.setExtensionPrompt(PROMPT_KEY, '', EXTENSION_PROMPT_TYPES.IN_CHAT, 0);
+            return;
+        }
+
+        const promptText = buildSystemDirection();
+        const depth = Number.isFinite(Number(settings.promptDepth)) ? Number(settings.promptDepth) : 1;
+
+        context.setExtensionPrompt(
+            PROMPT_KEY,
+            promptText,
+            EXTENSION_PROMPT_TYPES.IN_CHAT,
+            depth,
+            false,
+            EXTENSION_PROMPT_ROLES.SYSTEM
+        );
+    } catch (error) {
+        console.error(`[${MODULE_NAME}] Failed to update extension prompt:`, error);
+    }
+}
+
+/**
+ * Global generate_interceptor registered in manifest.json.
+ */
+globalThis.livingCharactersInterceptor = async function () {
+    updateInjectedPrompt();
+};
+
+/**
+ * Detect slop, bossy domestic orders, body fixations, or unauthorized lip kisses in a message.
+ * @param {string} text
+ * @returns {{ hasIssues: boolean, issues: string[] }}
+ */
+function analyzeMessageIssues(text) {
+    const settings = getSettings();
+    const issues = [];
+    if (!text || typeof text !== 'string') {
+        return { hasIssues: false, issues };
+    }
+
+    const lower = text.toLowerCase();
+
+    if (settings.antiSlop) {
+        const matchedSlop = parsePhraseList(settings.customBannedSlop).filter((phrase) =>
+            lower.includes(phrase.toLowerCase())
+        );
+        if (matchedSlop.length > 0) {
+            issues.push(`Banned AI cliches detected: ${matchedSlop.map((s) => `"${s}"`).join(', ')}`);
+        }
+    }
+
+    if (settings.antiBossy) {
+        const matchedBossy = parsePhraseList(settings.customBossyPhrases).filter((phrase) =>
+            lower.includes(phrase.toLowerCase())
+        );
+
+        const bossyRegexes = [
+            /(?:быстро|живо|марш|немедленно)\s+(?:в\s+кровать|спать|в\s+постель|за\s+стол)/i,
+            /(?:ложись|иди)\s+спать\s*[,—:-]?\s*(?:это\s+не\s+обсуждается|возражения\s+не\s+принимаются)?/i,
+            /(?:садись|сядь)\s+и\s+(?:рассказывай|говори|ешь|пей)/i,
+            /(?:пей|ешь|допивай|доедай)\s+давай/i,
+            /это\s+не\s+обсуждается/i,
+        ];
+
+        const regexHits = bossyRegexes.filter((rx) => rx.test(text));
+        if (matchedBossy.length > 0 || regexHits.length > 0) {
+            const detail =
+                matchedBossy.length > 0
+                    ? matchedBossy.map((s) => `"${s}"`).join(', ')
+                    : 'patronizing domestic command pattern';
+            issues.push(`Bossy/patronizing domestic command toward user detected (${detail})`);
+        }
+    }
+
+    if (settings.bodyDiversity) {
+        const matchedBody = parsePhraseList(settings.customBodyFixations).filter((phrase) =>
+            lower.includes(phrase.toLowerCase())
+        );
+        if (matchedBody.length > 0) {
+            issues.push(`Overused touch/body cliche detected: ${matchedBody.map((s) => `"${s}"`).join(', ')}`);
+        }
+
+        if (settings.romanceStatus !== 'established') {
+            const kissRegex = /(?:поцеловал[аи]?|впился|впилась|накрыл[аи]?\s+губы|коснулся\s+губами)\s+(?:в\s+)?губы/i;
+            if (kissRegex.test(text)) {
+                issues.push('Unauthorized kiss on the lips detected while romance status is NOT established');
+            }
+        }
+    }
+
     return {
-        role: String(tracker.role || ''),
-        satisfaction: Number.isFinite(Number(tracker.satisfaction)) ? Number(tracker.satisfaction) : 50,
+        hasIssues: issues.length > 0,
+        issues,
     };
 }
 
-function scanRecentChatHistory(lookbackCount = 6) {
+/**
+ * Strip accidental markdown code fences if the LLM wraps its response.
+ * @param {string} rawOutput
+ * @returns {string}
+ */
+function cleanSurgeonOutput(rawOutput) {
+    if (typeof rawOutput !== 'string') return '';
+    return rawOutput
+        .replace(/^```(?:markdown|text|ru|russian)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+}
+
+/**
+ * Execute an LLM request using either the selected Connection Profile (ConnectionManagerRequestService)
+ * or SillyTavern's active Main API (generateRaw).
+ * @param {string} systemPrompt
+ * @param {string} userPrompt
+ * @returns {Promise<string>}
+ */
+async function executeSafeLlmRequest(systemPrompt, userPrompt) {
     const context = SillyTavern.getContext();
     const settings = getSettings();
-    const chat = Array.isArray(context.chat) ? context.chat : [];
-    const recentBotMessages = chat
-        .filter(msg => !msg.is_user && !msg.is_system && typeof msg.mes === 'string')
-        .slice(-lookbackCount)
-        .map(msg => msg.mes.toLowerCase());
+    const maxTokens = Math.max(256, Number(settings.maxTokens) || 4096);
 
-    const combinedText = recentBotMessages.join('\n');
-    const slopPhrases = parsePhraseList(settings.slopList);
-
-    const repeatedSlop = slopPhrases.filter(phrase => combinedText.includes(phrase));
-    const repeatedTactile = DEFAULT_TACTILE_SPAM.filter(phrase => combinedText.includes(phrase));
-
-    return { repeatedSlop, repeatedTactile };
-}
-
-function buildDynamicInstruction() {
-    const settings = getSettings();
-    if (!settings.enabled) {
-        return '';
-    }
-
-    const context = SillyTavern.getContext();
-    const userName = context.name1 || 'User';
-    const charName = context.name2 || 'Character';
-    const blocks = [];
-
-    const { repeatedSlop, repeatedTactile } = scanRecentChatHistory(6);
-    const externalRel = getExternalRelationshipData();
-
-    if (settings.antiSlopPrompt) {
-        const recentWarning = repeatedSlop.length > 0
-            ? ` Critical alert: recent replies overused [${repeatedSlop.slice(0, 10).join(', ')}]; use completely different expressions.`
-            : '';
-        blocks.push(
-            `[STYLE & ANTI-SLOP DIRECTIVE: Write in vivid, natural Russian prose. Avoid melodramatic AI clichés: no whitening knuckles, ozone/bergamot smells, electric shocks on skin, husky whispers, darkening eyes, pinning to walls, grabbing chins, or "It's not X, it's Y" structures.${recentWarning}]`,
-        );
-    }
-
-    if (settings.antiBossy) {
-        blocks.push(
-            `[AGENCY & ANTI-MICROMANAGEMENT: Treat ${userName} as an autonomous adult equal. Never write actions, speech, or decisions for ${userName}. Avoid mundane bossy orders or parental nagging ("go to sleep", "sit down and tell me", "eat now", "stop arguing"). Genuine emotional outbursts during a heated fight ("Get out!", "Leave me alone!") are allowed only when justified by conflict.]`,
-        );
-    }
-
-    if (settings.livingDynamics) {
-        blocks.push(
-            `[LIVING CHARACTER & PACING: Avoid artificial positive bias. ${charName} has independent moods, pride, and boundaries: react authentically with disagreement, irritation, awkwardness, or warmth as earned by the scene without swinging into sudden extremes. Advance the plot and emotional arc proactively—initiate important conversations, confessions, or scene transitions when the moment is ripe without waiting for OOC prompts.]`,
-        );
-    }
-
-    if (settings.fullBodyTactile) {
-        let intimacyRule = '';
-        if (externalRel && externalRel.role) {
-            intimacyRule = `Current relationship status: "${externalRel.role}" (Warmth/Satisfaction: ${externalRel.satisfaction}%). Match all physical contact strictly to this stage.`;
-        } else if (settings.intimacyMode === 'strict_platonic') {
-            intimacyRule = `Current stage is strictly non-romantic: zero kisses or romantic caresses.`;
-        } else if (settings.intimacyMode === 'slowburn') {
-            intimacyRule = `Current stage is unconfessed/slow-burn: do NOT initiate kisses on the lips or romantic intimacy until feelings and relationship status are explicitly discussed and mutually established.`;
-        } else if (settings.intimacyMode === 'established') {
-            intimacyRule = `Characters are in an established relationship: natural affection is allowed when fitting the mood.`;
-        } else {
-            intimacyRule = `Verify the relationship stage from chat history before any romantic touch; never kiss ${userName} out of nowhere if feelings haven't been discussed.`;
-        }
-
-        const tactileWarning = repeatedTactile.length > 0
-            ? ` Stop repeating [${repeatedTactile.join(', ')}].`
-            : '';
-
-        blocks.push(
-            `[ORGANIC TACTILITY & FULL-BODY AWARENESS: ${intimacyRule} Avoid fixating on hands, wrists, chin, cheek, or head patting.${tactileWarning} When physical contact fits the scene, involve the whole body naturally: shoulders brushing, leaning back-to-back, nudging with an elbow, resting a forehead against a shoulder, steadying by the waist/hip/torso, adjusting a collar, or shifting physical distance.]`,
-        );
-    }
-
-    return blocks.join('\n');
-}
-
-function refreshExtensionPrompt() {
-    const context = SillyTavern.getContext();
-    const settings = getSettings();
-    const promptText = buildDynamicInstruction();
-
-    context.setExtensionPrompt(
-        PROMPT_KEY,
-        promptText,
-        EXTENSION_PROMPT_TYPES.IN_CHAT,
-        Number(settings.promptDepth) || 0,
-        false,
-        EXTENSION_PROMPT_ROLES.SYSTEM,
-    );
-}
-
-function setStreamingMask(active, statusText = '✨ Генерация и проверка ответа...') {
-    const settings = getSettings();
-    if (!settings.enabled || !settings.hideStreaming) {
-        document.body.classList.remove('las_masking_active');
-        return;
-    }
-
-    if (active) {
-        document.body.classList.add('las_masking_active');
-        const lastMesText = document.querySelector('#chat .mes.last_mes[is_user="false"] .mes_text');
-        if (lastMesText) {
-            lastMesText.setAttribute('data-las-status', statusText);
-        }
-    } else {
-        document.body.classList.remove('las_masking_active');
-    }
-}
-
-function detectIssuesInMessage(text) {
-    if (!text || typeof text !== 'string') {
-        return [];
-    }
-
-    const settings = getSettings();
-    const lower = text.toLowerCase();
-    const issues = [];
-
-    for (const phrase of parsePhraseList(settings.slopList)) {
-        if (lower.includes(phrase)) {
-            issues.push(`Штамп/слоп: «${phrase}»`);
-        }
-    }
-
-    if (settings.antiBossy) {
-        for (const phrase of parsePhraseList(settings.bossyList)) {
-            if (lower.includes(phrase)) {
-                issues.push(`Бытовой приказ: «${phrase}»`);
+    if (
+        settings.apiMode === 'profile' &&
+        settings.connectionProfileId &&
+        context.ConnectionManagerRequestService
+    ) {
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ];
+        const response = await context.ConnectionManagerRequestService.sendRequest(
+            settings.connectionProfileId,
+            messages,
+            maxTokens,
+            {
+                stream: false,
+                extractData: true,
+                includePreset: true,
+                includeInstruct: true,
             }
+        );
+
+        if (typeof response === 'string') {
+            return response;
+        }
+        if (response && typeof response.content === 'string') {
+            return response.content;
         }
     }
 
-    if (settings.fullBodyTactile) {
-        for (const tactile of DEFAULT_TACTILE_SPAM) {
-            if (lower.includes(tactile)) {
-                issues.push(`Однотипная тактильность: «${tactile}»`);
-            }
-        }
-
-        const externalRel = getExternalRelationshipData();
-        const isPlatonicOrSlowburn =
-            (externalRel && ['enemies', 'strangers', 'friends', 'slowburn'].includes(externalRel.role)) ||
-            (!externalRel && ['strict_platonic', 'slowburn'].includes(settings.intimacyMode));
-
-        if (isPlatonicOrSlowburn && /(поцеловал|поцеловала|впился в губы|впилась в губы|накрыл губы|накрыла губы)/i.test(text)) {
-            issues.push('Преждевременный поцелуй в губы без установленного статуса отношений');
-        }
+    if (typeof context.generateRaw !== 'function') {
+        throw new Error('SillyTavern.getContext().generateRaw is unavailable');
     }
 
-    return issues;
-}
-
-function cleanModelOutput(rawOutput) {
-    const context = SillyTavern.getContext();
-    let cleaned = String(rawOutput || '').trim();
-
-    if (typeof context.parseReasoningFromString === 'function') {
-        const parsed = context.parseReasoningFromString(cleaned);
-        if (parsed && typeof parsed.content === 'string' && parsed.content.trim()) {
-            cleaned = parsed.content.trim();
-        }
-    }
-
-    return cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-}
-
-async function rewriteMessageWithSurgeon(originalText, issues) {
-    const context = SillyTavern.getContext();
-    const userName = context.name1 || 'User';
-    const charName = context.name2 || 'Character';
-
-    const systemPrompt = [
-        'Ты — литературный редактор ролевого текста.',
-        'Твоя задача — точечно переписать ТОЛЬКО те предложения в ответе персонажа, где обнаружены указанные штампы, бытовые приказы или неуместная тактильность.',
-        'ПРАВИЛА:',
-        '1. Сохрани весь остальной текст, сюжетные события, объём, атмосферу, форматирование и прямую речь без изменений.',
-        '2. Замени штампы Gemini на живые, естественные человеческие реакции и бытовые микро-действия.',
-        `3. Убери покровительственные бытовые команды в адрес ${userName} («иди спать», «садись и рассказывай»), заменив их на равный диалог или вопрос.`,
-        '4. Замени банальные прикосновения к подбородку/щеке/запястью/голове на разнообразную телесность (плечи, локти, спина, корпус, дистанция) и убери внезапные поцелуи, если они указаны в списке проблем.',
-        `5. Верни ТОЛЬКО готовый исправленный текст сообщения от лица ${charName} без комментариев.`,
-    ].join('\n');
-
-    const userPrompt = [
-        'ОБНАРУЖЕННЫЕ ПРОБЛЕМЫ ДЛЯ ИСПРАВЛЕНИЯ:',
-        issues.map((item, idx) => `${idx + 1}. ${item}`).join('\n'),
-        '',
-        'ИСХОДНЫЙ ТЕКСТ СООБЩЕНИЯ:',
-        originalText,
-    ].join('\n');
-
-    const rawResponse = await context.generateRaw({
+    const result = await context.generateRaw({
         prompt: userPrompt,
         systemPrompt: systemPrompt,
+        responseLength: maxTokens,
     });
 
-    const cleaned = cleanModelOutput(rawResponse);
-    if (!cleaned || cleaned.length < Math.min(40, originalText.length * 0.4)) {
-        return originalText;
-    }
-
-    return cleaned;
+    return typeof result === 'string' ? result : String(result ?? '');
 }
 
-async function processBotMessage(messageId, forceManual = false) {
+/**
+ * Call the Invisible Surgeon (100% English prompt) to rewrite problematic spans while keeping Russian language and all special tags intact.
+ * @param {string} originalText
+ * @param {string[]} issues
+ * @param {boolean} forceFullPolish
+ * @returns {Promise<string>}
+ */
+async function rewriteMessageWithSurgeon(originalText, issues, forceFullPolish = false) {
+    const effectiveIssues =
+        issues.length > 0
+            ? issues
+            : [
+                  'Remove any AI cliches/slop, replace patronizing domestic commands toward the user with natural dialogue, diversify body language beyond hands/chin/cheeks, and ensure the character shows living initiative.',
+              ];
+
+    const systemPrompt = [
+        'You are a surgical literary editor for roleplay responses.',
+        'Your task is to fix ONLY the specific stylistic and behavioral issues listed below while preserving the exact plot events, scene details, character voice, paragraph structure, and length.',
+        'CRITICAL RULES:',
+        '1. Output ONLY the final rewritten message text. Do NOT include any English commentary, introductions, notes, or markdown code blocks.',
+        '2. Keep the exact language of the original message (Russian). Every edited phrase must be written in natural, vivid, literary Russian.',
+        '3. STRICTLY PRESERVE all special formatting blocks, headers, dialogue prefixes, and HTML comments exactly as they appear in the original text (for example: [ИНФО | ...], (Name/Emotion): "...", and <!--tel:time:...--> at the end).',
+        '4. Replace AI cliches (whitened knuckles, ozone/bergamot scent, darkened eyes, husky whispers, grabbing the chin) with fresh, grounded sensory and physical details.',
+        '5. Replace patronizing domestic orders toward the user ("go to sleep", "eat/drink now", "sit down and tell me") with respectful offers, questions, or natural character reactions. Keep heated emotional outbursts only if characters are in a genuine fight.',
+        '6. Replace repetitive hand/cheek/chin/head-patting touches with varied full-body spatial movement (shoulders, elbows, back, posture, stepping back, interacting with objects in the environment).',
+        forceFullPolish
+            ? '7. Make the character proactive: ensure the response includes a concrete action, detail, or hook that moves the scene forward.'
+            : '',
+    ]
+        .filter(Boolean)
+        .join('\n');
+
+    const userPrompt = [
+        'DETECTED ISSUES TO FIX:',
+        ...effectiveIssues.map((item, idx) => `${idx + 1}. ${item}`),
+        '',
+        'ORIGINAL ROLEPLAY MESSAGE:',
+        originalText,
+        '',
+        'REWRITTEN MESSAGE (Russian language only, preserving all [ИНФО...] tags and <!--...--> comments, no explanations):',
+    ].join('\n');
+
+    const rawResult = await executeSafeLlmRequest(systemPrompt, userPrompt);
+    const cleaned = cleanSurgeonOutput(rawResult);
+    return cleaned.length > 20 ? cleaned : originalText;
+}
+
+/**
+ * Guarantee removal of all veil overlays from every message in the chat.
+ */
+function clearAllVeils() {
+    if (veilWatchdogTimer) {
+        clearTimeout(veilWatchdogTimer);
+        veilWatchdogTimer = null;
+    }
+    $('#chat .mes.lcas_veil_active').removeClass('lcas_veil_active');
+    $('#chat .mes .mes_text').removeAttr('data-lcas-status');
+}
+
+/**
+ * Show or remove the protective veil over a message element in the chat.
+ * Includes a safety watchdog timer so the veil can never stay stuck forever.
+ * @param {number|string} messageId
+ * @param {boolean} active
+ * @param {string} [statusText]
+ */
+function setMessageVeil(messageId, active, statusText = '✨ Проверяю и оживляю ответ... (нажмите, чтобы скрыть)') {
+    if (!active) {
+        clearAllVeils();
+        return;
+    }
+
+    const mesElement = $(`#chat .mes[mesid="${messageId}"]`);
+    if (!mesElement.length) return;
+
+    const textElement = mesElement.find('.mes_text');
+    textElement.attr('data-lcas-status', statusText);
+    mesElement.addClass('lcas_veil_active');
+
+    if (veilWatchdogTimer) {
+        clearTimeout(veilWatchdogTimer);
+    }
+    veilWatchdogTimer = setTimeout(() => {
+        clearAllVeils();
+    }, 35000);
+}
+
+/**
+ * Apply the rewritten text to the message object, synchronize swipes and display_text, save the chat, and refresh the UI.
+ * @param {number} messageId
+ * @param {string} updatedText
+ */
+async function applyUpdatedMessageToChat(messageId, updatedText) {
+    const context = SillyTavern.getContext();
     const settings = getSettings();
-    if (!settings.enabled || isRewriting) {
-        setStreamingMask(false);
+    const message = context.chat?.[messageId];
+    if (!message) {
+        clearAllVeils();
+        return;
+    }
+
+    const newHash = computeTextHash(updatedText);
+
+    // 1. Update core message text
+    message.mes = updatedText;
+
+    // 2. Synchronize active swipe if swipes array exists
+    if (Array.isArray(message.swipes) && typeof message.swipe_id === 'number') {
+        message.swipes[message.swipe_id] = updatedText;
+    }
+
+    // 3. Synchronize extra.display_text so updateMessageBlock never renders stale text
+    if (!message.extra || typeof message.extra !== 'object') {
+        message.extra = {};
+    }
+    if (typeof message.extra.display_text === 'string') {
+        message.extra.display_text = updatedText;
+    }
+    message.extra.lcas_last_hash = newHash;
+
+    // 4. Clear any veil before re-rendering
+    clearAllVeils();
+
+    // 5. Update DOM block immediately
+    if (typeof context.updateMessageBlock === 'function') {
+        context.updateMessageBlock(Number(messageId), message);
+    } else if (typeof context.messageFormatting === 'function') {
+        const formatted = context.messageFormatting(
+            updatedText,
+            message.name,
+            message.is_system,
+            message.is_user,
+            Number(messageId)
+        );
+        $(`#chat .mes[mesid="${messageId}"] .mes_text`).html(formatted);
+    }
+
+    // 6. Persist chat to disk
+    if (typeof context.saveChat === 'function') {
+        await context.saveChat();
+    }
+
+    // 7. Execute user-selected chat refresh strategy so custom trackers/renderers display the new text
+    if (settings.refreshMode === 'reload_page') {
+        window.location.reload();
+        return;
+    }
+
+    if (settings.refreshMode === 'reload_chat' && typeof context.reloadCurrentChat === 'function') {
+        await context.reloadCurrentChat();
+    }
+
+    clearAllVeils();
+    injectMessageActionButtons();
+}
+
+/**
+ * Inspect and optionally rewrite a character message by ID.
+ * @param {number} messageId
+ * @param {boolean} [manualForce=false]
+ */
+async function processCharacterMessage(messageId, manualForce = false) {
+    const settings = getSettings();
+    if (!settings.enabled && !manualForce) {
+        clearAllVeils();
+        return;
+    }
+
+    const msgIndex = Number(messageId);
+    if (!Number.isFinite(msgIndex) || activeRewrites.has(msgIndex)) {
         return;
     }
 
     const context = SillyTavern.getContext();
-    const chat = context.chat;
-    if (!Array.isArray(chat) || !chat[messageId]) {
-        setStreamingMask(false);
+    const message = context.chat?.[msgIndex];
+    if (!message || message.is_user || message.is_system || !message.mes) {
+        clearAllVeils();
         return;
     }
 
-    const message = chat[messageId];
-    if (message.is_user || message.is_system || !message.mes) {
-        setStreamingMask(false);
+    const currentHash = computeTextHash(message.mes);
+    if (!manualForce && message.extra?.lcas_last_hash === currentHash) {
+        clearAllVeils();
         return;
     }
 
-    const issues = detectIssuesInMessage(message.mes);
-    if (issues.length === 0 && !forceManual) {
-        setStreamingMask(false);
+    const analysis = analyzeMessageIssues(message.mes);
+    const shouldRewrite = manualForce || (settings.surgeonEnabled && analysis.hasIssues);
+
+    if (!shouldRewrite) {
+        if (!message.extra || typeof message.extra !== 'object') {
+            message.extra = {};
+        }
+        message.extra.lcas_last_hash = currentHash;
+        clearAllVeils();
         return;
     }
 
-    if (!settings.autoSurgeon && !forceManual) {
-        setStreamingMask(false);
-        toastr.info(`Обнаружено штампов: ${issues.length}`, 'Living Characters & Anti-Slop');
-        return;
-    }
+    activeRewrites.add(msgIndex);
+    setMessageVeil(
+        msgIndex,
+        true,
+        manualForce
+            ? '✨ Делаю ответ живее... (нажмите, чтобы показать текст)'
+            : '✨ Хирург убирает штампы... (нажмите, чтобы показать текст)'
+    );
 
     try {
-        isRewriting = true;
-        const statusMsg = issues.length > 0
-            ? `✨ Убираю слоп (${issues.length} шт.)...`
-            : '✨ Делаю ответ живее...';
-        setStreamingMask(true, statusMsg);
+        const updatedText = await rewriteMessageWithSurgeon(
+            message.mes,
+            analysis.issues,
+            manualForce
+        );
 
-        const effectiveIssues = issues.length > 0
-            ? issues
-            : ['Вычисти скрытые клише Gemini, бытовые приказы и однотипную тактильность, сделай реакции живыми.'];
+        clearAllVeils();
 
-        const rewritten = await rewriteMessageWithSurgeon(message.mes, effectiveIssues);
-
-        if (rewritten && rewritten !== message.mes) {
-            message.mes = rewritten;
-            if (Array.isArray(message.swipes) && typeof message.swipe_id === 'number') {
-                message.swipes[message.swipe_id] = rewritten;
-            }
-            context.updateMessageBlock(messageId, message);
-            injectButtonsIntoMessages();
-            await context.saveChat();
-            toastr.success(`Исправлено триггеров: ${effectiveIssues.length}`, 'Анти-Слоп Хирург');
+        if (updatedText && updatedText !== message.mes) {
+            await applyUpdatedMessageToChat(msgIndex, updatedText);
+            toastr.success('Ответ успешно обновлён Хирургом', 'Living Characters');
+        } else if (manualForce) {
+            toastr.info('Текст не потребовал изменений', 'Living Characters');
         }
     } catch (error) {
-        console.error(`[${MODULE_NAME}] Failed to rewrite message:`, error);
-        toastr.error('Не удалось переписать ответ', 'Living Characters & Anti-Slop');
+        clearAllVeils();
+        console.error(`[${MODULE_NAME}] Surgeon rewrite failed:`, error);
+        toastr.error(
+            `Не удалось переписать ответ: ${error.message || error}`,
+            'Living Characters & Anti-Slop'
+        );
     } finally {
-        isRewriting = false;
-        setStreamingMask(false);
+        activeRewrites.delete(msgIndex);
+        clearAllVeils();
     }
-}
-
-function updateCounters() {
-    const settings = getSettings();
-    $('#las_slop_count').text(parsePhraseList(settings.slopList).length);
-    $('#las_bossy_count').text(parsePhraseList(settings.bossyList).length);
 }
 
 /**
- * Add phrase to slopList or bossyList and sync all UI views.
- * @param {string} rawPhrase
- * @param {'slopList' | 'bossyList'} listKey
+ * Add a rounded wand button to every character message in the chat.
  */
-function addPhraseToBanlist(rawPhrase, listKey = 'slopList') {
-    const phrase = String(rawPhrase || '').trim().toLowerCase();
-    if (!phrase) {
-        return false;
-    }
+function injectMessageActionButtons() {
+    $('#chat .mes').each(function () {
+        const mesBlock = $(this);
+        if (mesBlock.attr('is_user') === 'true' || mesBlock.attr('is_system') === 'true') {
+            return;
+        }
+        const extraButtons = mesBlock.find('.extraMesButtons');
+        if (!extraButtons.length || extraButtons.find('.lcas_mes_action_btn').length > 0) {
+            return;
+        }
 
+        const btn = $(
+            `<div class="lcas_mes_action_btn mes_button" title="Оживить ответ и убрать слоп (Living Characters)">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </div>`
+        );
+        extraButtons.prepend(btn);
+    });
+}
+
+/**
+ * Populate a select element with supported Connection Manager profiles.
+ * @param {JQuery<HTMLSelectElement>} selectEl
+ * @param {string} selectedId
+ */
+function populateConnectionProfilesDropdown(selectEl, selectedId) {
+    if (!selectEl || !selectEl.length) return;
+    const context = SillyTavern.getContext();
+    selectEl.empty();
+    selectEl.append('<option value="">-- Выберите профиль подключения --</option>');
+
+    try {
+        const profiles =
+            context.ConnectionManagerRequestService?.getSupportedProfiles?.() ||
+            context.extensionSettings?.connectionManager?.profiles ||
+            [];
+
+        for (const profile of profiles) {
+            if (!profile || !profile.id) continue;
+            const option = $('<option></option>')
+                .val(profile.id)
+                .text(`${profile.name || profile.id} (${profile.api || 'API'})`);
+            if (profile.id === selectedId) {
+                option.prop('selected', true);
+            }
+            selectEl.append(option);
+        }
+    } catch (error) {
+        console.warn(`[${MODULE_NAME}] Connection Manager profiles unavailable:`, error);
+    }
+}
+
+/**
+ * Open a custom mobile-friendly modal sheet that never hides behind the top bar.
+ */
+function openBanlistModal() {
     const context = SillyTavern.getContext();
     const settings = getSettings();
-    const currentList = parsePhraseList(settings[listKey]);
 
-    if (!currentList.includes(phrase)) {
-        currentList.unshift(phrase);
-        settings[listKey] = currentList.join('\n');
-        $('#las_slop_list').val(settings.slopList);
-        $('#las_bossy_list').val(settings.bossyList);
-        updateCounters();
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-        toastr.success(`Добавлено в бан-лист: «${phrase}»`, 'Анти-Слоп');
-        return true;
-    }
-    return false;
-}
+    $('.lcas_overlay_backdrop').remove();
 
-/**
- * Remove phrase from slopList or bossyList.
- * @param {string} targetPhrase
- * @param {'slopList' | 'bossyList'} listKey
- */
-function removePhraseFromBanlist(targetPhrase, listKey = 'slopList') {
-    const context = SillyTavern.getContext();
-    const settings = getSettings();
-    const filtered = parsePhraseList(settings[listKey]).filter(item => item !== targetPhrase);
-    settings[listKey] = filtered.join('\n');
-    $('#las_slop_list').val(settings.slopList);
-    $('#las_bossy_list').val(settings.bossyList);
-    updateCounters();
-    refreshExtensionPrompt();
-    context.saveSettingsDebounced();
-}
-
-/**
- * Open the rounded floating Banlist & Quick Fix Manager modal directly over the chat.
- * @param {number | null} targetMessageId
- * @param {string} prefilledText
- */
-function openQuickBanModal(targetMessageId = null, prefilledText = '') {
-    $('.las_modal_backdrop').remove();
-
-    const modalHtml = `
-        <div class="las_modal_backdrop">
-            <div class="las_modal_window">
-                <div class="las_modal_top">
-                    <div class="las_modal_title">
-                        <i class="fa-solid fa-shield-heart"></i>
-                        <span>Бан-лист и Хирург</span>
+    const overlay = $(`
+        <div class="lcas_overlay_backdrop" role="dialog" aria-modal="true">
+            <div class="lcas_overlay_sheet">
+                <div class="lcas_overlay_header">
+                    <h3 class="lcas_overlay_header_title">Бан-лист и правила</h3>
+                    <button type="button" class="lcas_overlay_close_btn" id="lcas_modal_close_top">
+                        <i class="fa-solid fa-xmark"></i> Закрыть
+                    </button>
+                </div>
+                <div class="lcas_overlay_body">
+                    <div class="lcas_modal_card">
+                        <h4 class="lcas_modal_title">1. Запрещённые штампы и слоп (по 1 фразе на строку)</h4>
+                        <p class="lcas_modal_hint">Эти выражения блокируются в системном промпте и автоматически вырезаются Хирургом.</p>
+                        <textarea id="lcas_modal_slop" class="lcas_textarea"></textarea>
                     </div>
-                    <button type="button" class="las_close_btn" id="las_modal_close">
-                        <i class="fa-solid fa-xmark"></i>
+                    <div class="lcas_modal_card">
+                        <h4 class="lcas_modal_title">2. Бытовые приказы (No Bossy Caring)</h4>
+                        <p class="lcas_modal_hint">Фразы бытового командования («иди спать», «пей давай»). Эмоциональные реплики в реальных ссорах не блокируются.</p>
+                        <textarea id="lcas_modal_bossy" class="lcas_textarea"></textarea>
+                    </div>
+                    <div class="lcas_modal_card">
+                        <h4 class="lcas_modal_title">3. Заезженная тактильность</h4>
+                        <p class="lcas_modal_hint">Штампы прикосновений, которые заменяются на разнообразную пластику тела (плечи, локти, спина, дистанция).</p>
+                        <textarea id="lcas_modal_body" class="lcas_textarea"></textarea>
+                    </div>
+                    <div class="lcas_modal_card">
+                        <h4 class="lcas_modal_title">4. Дополнительные личные правила</h4>
+                        <p class="lcas_modal_hint">Любые ваши кастомные требования к стилю и поведению персонажа.</p>
+                        <textarea id="lcas_modal_extra" class="lcas_textarea" placeholder="Например: Avoid melodramatic pauses..."></textarea>
+                    </div>
+                </div>
+                <div class="lcas_overlay_footer">
+                    <button type="button" class="lcas_btn lcas_btn_secondary" id="lcas_modal_cancel_btn">
+                        Отмена
                     </button>
-                </div>
-
-                <div class="las_tabs_row">
-                    <button type="button" class="las_tab_btn active" data-tab="slopList">Штампы и слоп</button>
-                    <button type="button" class="las_tab_btn" data-tab="bossyList">Командирский тон</button>
-                </div>
-
-                <div class="las_quick_add_row">
-                    <input id="las_modal_input" type="text" class="text_pole las_pill_input" placeholder="Слово или фраза для бана..." />
-                    <button id="las_modal_add_btn" class="menu_button las_pill_btn las_primary_btn" type="button" style="flex:0 0 auto;">
-                        <i class="fa-solid fa-plus"></i> В бан
-                    </button>
-                </div>
-
-                <div id="las_modal_chips" class="las_chips_container"></div>
-
-                <div class="las_button_row">
-                    <button id="las_modal_add_and_fix" class="menu_button las_pill_btn las_primary_btn" type="button">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> В бан + Переписать ответ
+                    <button type="button" class="lcas_btn lcas_btn_primary" id="lcas_modal_save_btn">
+                        <i class="fa-solid fa-check"></i> Сохранить
                     </button>
                 </div>
             </div>
         </div>
-    `;
-
-    $('body').append(modalHtml);
-
-    if (prefilledText) {
-        $('#las_modal_input').val(prefilledText);
-    }
-
-    function renderChips() {
-        const settings = getSettings();
-        const phrases = parsePhraseList(settings[activeModalTab]);
-        const container = $('#las_modal_chips');
-        container.empty();
-
-        if (phrases.length === 0) {
-            container.append('<div style="opacity:0.6;font-size:0.85rem;padding:8px;">Список пуст</div>');
-            return;
-        }
-
-        for (const phrase of phrases) {
-            const chip = $(`
-                <span class="las_chip">
-                    <span class="las_chip_text"></span>
-                    <button type="button" class="las_chip_del" title="Удалить"><i class="fa-solid fa-xmark"></i></button>
-                </span>
-            `);
-            chip.find('.las_chip_text').text(phrase);
-            chip.find('.las_chip_del').on('click', function () {
-                removePhraseFromBanlist(phrase, activeModalTab);
-                renderChips();
-            });
-            container.append(chip);
-        }
-    }
-
-    renderChips();
-
-    $('.las_tab_btn').on('click', function () {
-        $('.las_tab_btn').removeClass('active');
-        $(this).addClass('active');
-        activeModalTab = String($(this).data('tab'));
-        renderChips();
-    });
-
-    $('#las_modal_add_btn').on('click', function () {
-        const val = String($('#las_modal_input').val() || '');
-        if (addPhraseToBanlist(val, activeModalTab)) {
-            $('#las_modal_input').val('');
-            renderChips();
-        }
-    });
-
-    $('#las_modal_add_and_fix').on('click', async function () {
-        const val = String($('#las_modal_input').val() || '').trim();
-        if (val) {
-            addPhraseToBanlist(val, activeModalTab);
-        }
-        $('.las_modal_backdrop').remove();
-
-        const context = SillyTavern.getContext();
-        const chat = context.chat;
-        if (!Array.isArray(chat) || chat.length === 0) {
-            return;
-        }
-        const msgId = targetMessageId !== null ? targetMessageId : chat.length - 1;
-        await processBotMessage(msgId, true);
-    });
-
-    $('#las_modal_close, .las_modal_backdrop').on('click', function (e) {
-        if (e.target === this || $(e.target).closest('#las_modal_close').length) {
-            $('.las_modal_backdrop').remove();
-        }
-    });
-}
-
-/**
- * Inject quick action buttons ("✨ Править" & "🚫 В бан") into every bot message header in chat.
- */
-function injectButtonsIntoMessages() {
-    $('#chat .mes[is_user="false"]').each(function () {
-        const mesEl = $(this);
-        if (mesEl.find('.las_mes_actions').length > 0) {
-            return;
-        }
-
-        const mesId = Number(mesEl.attr('mesid'));
-        const actionBar = $(`
-            <span class="las_mes_actions">
-                <button type="button" class="las_mes_btn las_mes_fix" title="Переписать сообщение без слопа">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i>
-                </button>
-                <button type="button" class="las_mes_btn las_mes_ban" title="Добавить выделенную фразу в бан-лист">
-                    <i class="fa-solid fa-ban"></i>
-                </button>
-            </span>
-        `);
-
-        actionBar.find('.las_mes_fix').on('click', async function (e) {
-            e.stopPropagation();
-            await processBotMessage(mesId, true);
-        });
-
-        actionBar.find('.las_mes_ban').on('click', function (e) {
-            e.stopPropagation();
-            const selectedText = String(window.getSelection ? window.getSelection().toString() : '').trim();
-            openQuickBanModal(mesId, selectedText);
-        });
-
-        const headerTarget = mesEl.find('.mes_buttons').first();
-        if (headerTarget.length > 0) {
-            headerTarget.prepend(actionBar);
-        } else {
-            mesEl.find('.ch_name').first().append(actionBar);
-        }
-    });
-}
-
-/**
- * Add quick access item into SillyTavern's Extensions Wand Menu (#extensionsMenu).
- */
-function injectWandMenuButton() {
-    if ($('#las_wand_menu_item').length > 0) {
-        return;
-    }
-
-    const wandItem = $(`
-        <div id="las_wand_menu_item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
-            <div class="fa-solid fa-shield-heart extensionsMenuExtensionButton"></div>
-            <span>Анти-Слоп: Бан-лист и Хирург</span>
-        </div>
     `);
 
-    wandItem.on('click', function () {
-        const selectedText = String(window.getSelection ? window.getSelection().toString() : '').trim();
-        openQuickBanModal(null, selectedText);
+    overlay.find('#lcas_modal_slop').val(settings.customBannedSlop);
+    overlay.find('#lcas_modal_bossy').val(settings.customBossyPhrases);
+    overlay.find('#lcas_modal_body').val(settings.customBodyFixations);
+    overlay.find('#lcas_modal_extra').val(settings.customExtraRules);
+
+    const closeModal = () => overlay.remove();
+
+    overlay.find('#lcas_modal_close_top, #lcas_modal_cancel_btn').on('click', closeModal);
+    overlay.on('click', function (e) {
+        if (e.target === this) {
+            closeModal();
+        }
     });
 
-    $('#extensionsMenu').append(wandItem);
+    overlay.find('#lcas_modal_save_btn').on('click', () => {
+        settings.customBannedSlop = String(overlay.find('#lcas_modal_slop').val() || '');
+        settings.customBossyPhrases = String(overlay.find('#lcas_modal_bossy').val() || '');
+        settings.customBodyFixations = String(overlay.find('#lcas_modal_body').val() || '');
+        settings.customExtraRules = String(overlay.find('#lcas_modal_extra').val() || '');
+        context.saveSettingsDebounced();
+        updateInjectedPrompt();
+        closeModal();
+        toastr.success('Бан-лист и правила сохранены', 'Living Characters');
+    });
+
+    $('body').append(overlay);
 }
 
+/**
+ * Bind UI controls in the extension settings panel.
+ */
 function bindSettingsUI() {
     const context = SillyTavern.getContext();
     const settings = getSettings();
 
-    $('#las_enabled').prop('checked', settings.enabled).on('change', function () {
-        settings.enabled = Boolean($(this).prop('checked'));
-        refreshExtensionPrompt();
+    const bindCheckbox = (selector, key) => {
+        const el = $(selector);
+        el.prop('checked', Boolean(settings[key]));
+        el.off('change.lcas').on('change.lcas', function () {
+            settings[key] = $(this).is(':checked');
+            if (key === 'hideStreaming' && !settings[key]) {
+                clearAllVeils();
+            }
+            context.saveSettingsDebounced();
+            updateInjectedPrompt();
+        });
+    };
+
+    bindCheckbox('#lcas_enabled', 'enabled');
+    bindCheckbox('#lcas_anti_slop', 'antiSlop');
+    bindCheckbox('#lcas_anti_bossy', 'antiBossy');
+    bindCheckbox('#lcas_initiative', 'initiative');
+    bindCheckbox('#lcas_body_diversity', 'bodyDiversity');
+    bindCheckbox('#lcas_surgeon_enabled', 'surgeonEnabled');
+    bindCheckbox('#lcas_hide_streaming', 'hideStreaming');
+
+    const romanceSelect = $('#lcas_romance_status');
+    romanceSelect.val(settings.romanceStatus);
+    romanceSelect.off('change.lcas').on('change.lcas', function () {
+        settings.romanceStatus = String($(this).val());
+        context.saveSettingsDebounced();
+        updateInjectedPrompt();
+    });
+
+    const refreshSelect = $('#lcas_refresh_mode');
+    refreshSelect.val(settings.refreshMode || 'reload_chat');
+    refreshSelect.off('change.lcas').on('change.lcas', function () {
+        settings.refreshMode = String($(this).val());
         context.saveSettingsDebounced();
     });
 
-    $('#las_anti_slop_prompt').prop('checked', settings.antiSlopPrompt).on('change', function () {
-        settings.antiSlopPrompt = Boolean($(this).prop('checked'));
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-    });
+    const apiModeSelect = $('#lcas_api_mode');
+    const profileBlock = $('#lcas_profile_block');
+    const profileSelect = $('#lcas_connection_profile');
 
-    $('#las_anti_bossy').prop('checked', settings.antiBossy).on('change', function () {
-        settings.antiBossy = Boolean($(this).prop('checked'));
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-    });
+    apiModeSelect.val(settings.apiMode || 'main');
+    profileBlock.toggle(settings.apiMode === 'profile');
+    populateConnectionProfilesDropdown(profileSelect, settings.connectionProfileId);
 
-    $('#las_living_dynamics').prop('checked', settings.livingDynamics).on('change', function () {
-        settings.livingDynamics = Boolean($(this).prop('checked'));
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_full_body_tactile').prop('checked', settings.fullBodyTactile).on('change', function () {
-        settings.fullBodyTactile = Boolean($(this).prop('checked'));
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_intimacy_mode').val(settings.intimacyMode).on('change', function () {
-        settings.intimacyMode = String($(this).val());
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_prompt_depth').val(settings.promptDepth).on('input', function () {
-        settings.promptDepth = Math.max(0, Math.min(10, Number($(this).val()) || 0));
-        refreshExtensionPrompt();
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_hide_streaming').prop('checked', settings.hideStreaming).on('change', function () {
-        settings.hideStreaming = Boolean($(this).prop('checked'));
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_auto_surgeon').prop('checked', settings.autoSurgeon).on('change', function () {
-        settings.autoSurgeon = Boolean($(this).prop('checked'));
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_slop_list').val(settings.slopList).on('input', function () {
-        settings.slopList = String($(this).val());
-        updateCounters();
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_bossy_list').val(settings.bossyList).on('input', function () {
-        settings.bossyList = String($(this).val());
-        updateCounters();
-        context.saveSettingsDebounced();
-    });
-
-    $('#las_quick_add_btn').on('click', function () {
-        const phrase = String($('#las_quick_phrase').val() || '');
-        if (addPhraseToBanlist(phrase, 'slopList')) {
-            $('#las_quick_phrase').val('');
+    apiModeSelect.off('change.lcas').on('change.lcas', function () {
+        settings.apiMode = String($(this).val());
+        profileBlock.toggle(settings.apiMode === 'profile');
+        if (settings.apiMode === 'profile') {
+            populateConnectionProfilesDropdown(profileSelect, settings.connectionProfileId);
         }
-    });
-
-    $('#las_fix_last_btn').on('click', async function () {
-        const chat = context.chat;
-        if (!Array.isArray(chat) || chat.length === 0) {
-            toastr.warning('Чат пуст', 'Living Characters & Anti-Slop');
-            return;
-        }
-        await processBotMessage(chat.length - 1, true);
-    });
-
-    $('#las_reset_defaults_btn').on('click', function () {
-        settings.slopList = DEFAULT_SLOP_LIST.join('\n');
-        settings.bossyList = DEFAULT_BOSSY_LIST.join('\n');
-        $('#las_slop_list').val(settings.slopList);
-        $('#las_bossy_list').val(settings.bossyList);
-        updateCounters();
         context.saveSettingsDebounced();
-        toastr.info('Списки сброшены к стандартным', 'Living Characters & Anti-Slop');
     });
 
-    updateCounters();
-}
+    profileSelect.off('change.lcas').on('change.lcas', function () {
+        settings.connectionProfileId = String($(this).val() || '');
+        context.saveSettingsDebounced();
+    });
 
-function registerSlashCommands() {
-    const context = SillyTavern.getContext();
-    if (!context.SlashCommandParser || !context.SlashCommand) {
-        return;
-    }
+    $('#lcas_refresh_profiles')
+        .off('click.lcas')
+        .on('click.lcas', () => {
+            populateConnectionProfilesDropdown(profileSelect, settings.connectionProfileId);
+            toastr.info('Список профилей подключения обновлён', 'Living Characters');
+        });
 
-    context.SlashCommandParser.addCommandObject(
-        context.SlashCommand.fromProps({
-            name: 'fixslop',
-            callback: async () => {
-                const chat = context.chat;
-                if (!Array.isArray(chat) || chat.length === 0) {
-                    return '';
+    const maxTokensInput = $('#lcas_max_tokens');
+    maxTokensInput.val(settings.maxTokens || 4096);
+    maxTokensInput.off('change.lcas').on('change.lcas', function () {
+        const val = Math.max(256, Math.min(16384, Number($(this).val()) || 4096));
+        settings.maxTokens = val;
+        $(this).val(val);
+        context.saveSettingsDebounced();
+    });
+
+    $('#lcas_open_banlist_btn').off('click.lcas').on('click.lcas', openBanlistModal);
+
+    $('#lcas_rewrite_last_btn')
+        .off('click.lcas')
+        .on('click.lcas', async () => {
+            const chat = context.chat || [];
+            for (let i = chat.length - 1; i >= 0; i--) {
+                if (!chat[i].is_user && !chat[i].is_system) {
+                    await processCharacterMessage(i, true);
+                    return;
                 }
-                await processBotMessage(chat.length - 1, true);
-                return '';
-            },
-            helpString: 'Точечно переписать последний ответ бота без клише Gemini и бытового командования.',
-        }),
-    );
+            }
+            toastr.warning('В чате ещё нет ответов персонажа', 'Living Characters');
+        });
+
+    $(document)
+        .off('click.lcas', '.lcas_mes_action_btn')
+        .on('click.lcas', '.lcas_mes_action_btn', async function (event) {
+            event.stopPropagation();
+            const mesId = Number($(this).closest('.mes').attr('mesid'));
+            if (!Number.isNaN(mesId)) {
+                await processCharacterMessage(mesId, true);
+            }
+        });
+
+    // Tap anywhere on the veil to dismiss it immediately if desired
+    $(document)
+        .off('click.lcas_veil', '.mes.lcas_veil_active')
+        .on('click.lcas_veil', '.mes.lcas_veil_active', function () {
+            clearAllVeils();
+        });
 }
 
+/**
+ * Initialize the extension once SillyTavern is ready.
+ */
 async function init() {
     try {
         const context = SillyTavern.getContext();
         getSettings();
 
-        const extPath = import.meta.url
-            .replace(/^.*\/extensions\//, '')
-            .replace(/\/index\.js.*$/, '');
-
-        const settingsHtml = await context.renderExtensionTemplateAsync(
-            extPath,
-            'settings',
+        const settingsHtml = await $.get(`/scripts/extensions/third-party/Ztblivingbantibslop/settings.html`).catch(
+            async () => {
+                const scripts = document.querySelectorAll('script[type="module"]');
+                for (const s of scripts) {
+                    if (s.src && s.src.includes('Ztblivingbantibslop')) {
+                        const baseUrl = s.src.substring(0, s.src.lastIndexOf('/'));
+                        return await $.get(`${baseUrl}/settings.html`);
+                    }
+                }
+                throw new Error('Could not locate settings.html');
+            }
         );
+
         $('#extensions_settings2').append(settingsHtml);
-
         bindSettingsUI();
-        injectWandMenuButton();
-        injectButtonsIntoMessages();
-        registerSlashCommands();
-        refreshExtensionPrompt();
+        updateInjectedPrompt();
+        injectMessageActionButtons();
 
-        context.eventSource.on(context.eventTypes.GENERATION_STARTED, () => {
-            refreshExtensionPrompt();
-            setStreamingMask(true, '✨ Генерация и фильтрация слопа...');
+        const { eventSource, event_types } = context;
+
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            clearAllVeils();
+            updateInjectedPrompt();
+            setTimeout(injectMessageActionButtons, 150);
         });
 
-        context.eventSource.on(context.eventTypes.CHARACTER_MESSAGE_RENDERED, async (messageId) => {
-            injectButtonsIntoMessages();
-            await processBotMessage(Number(messageId), false);
+        eventSource.on(event_types.GENERATION_STARTED, () => {
+            isStreaming = true;
+            updateInjectedPrompt();
         });
 
-        context.eventSource.on(context.eventTypes.GENERATION_STOPPED, () => {
-            setStreamingMask(false);
+        eventSource.on(event_types.STREAM_TOKEN_RECEIVED, () => {
+            const settings = getSettings();
+            if (!settings.enabled || !settings.hideStreaming || !settings.surgeonEnabled) return;
+            const lastIndex = (context.chat?.length || 1) - 1;
+            if (lastIndex >= 0 && isStreaming) {
+                setMessageVeil(lastIndex, true, '✨ Формирую живой ответ... (нажмите, чтобы показать)');
+            }
         });
 
-        context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
-            setStreamingMask(false);
-            refreshExtensionPrompt();
-            setTimeout(injectButtonsIntoMessages, 200);
+        eventSource.on(event_types.GENERATION_STOPPED, () => {
+            isStreaming = false;
+            clearAllVeils();
         });
 
-        console.log(`[${MODULE_NAME}] Extension initialized.`);
+        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, async (messageId) => {
+            isStreaming = false;
+            clearAllVeils();
+            injectMessageActionButtons();
+            await processCharacterMessage(Number(messageId), false);
+        });
+
+        console.info(`[${MODULE_NAME}] Extension initialized (v1.2.0).`);
     } catch (error) {
-        console.error(`[${MODULE_NAME}] Initialization failed:`, error);
-        toastr.error('Ошибка запуска Living Characters & Anti-Slop');
+        console.error(`[${MODULE_NAME}] Initialization error:`, error);
+        toastr.error('Ошибка запуска Living Characters & Anti-Slop', 'Extension Error');
     }
 }
 
-SillyTavern.getContext().eventSource.on(SillyTavern.getContext().eventTypes.APP_READY, init);
+jQuery(() => {
+    const context = SillyTavern.getContext();
+    if (context?.eventSource && context?.event_types?.APP_READY) {
+        context.eventSource.on(context.event_types.APP_READY, init);
+    } else {
+        setTimeout(init, 1000);
+    }
+});
