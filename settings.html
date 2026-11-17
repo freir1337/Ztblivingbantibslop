@@ -1,135 +1,139 @@
-<div class="inline-drawer">
-    <div class="inline-drawer-toggle inline-drawer-header las_drawer_header">
-        <div class="las_header_title">
-            <i class="fa-solid fa-sparkles las_accent_icon"></i>
-            <b>Living Characters &amp; Anti-Slop</b>
-        </div>
+<div class="inline-drawer lcas_settings_drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b>Living Characters &amp; Anti-Slop</b>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
-
-    <div class="inline-drawer-content las_settings_panel">
-        <div class="las_card las_hero_card">
-            <label class="las_switch_row" for="las_enabled">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Активная защита от слопа</span>
-                    <span class="las_switch_sub">Контроль промпта, тактильности и фоновый Хирург</span>
+    <div class="inline-drawer-content lcas_drawer_body">
+        <div class="lcas_card">
+            <div class="lcas_header_row">
+                <div class="lcas_title_group">
+                    <span class="lcas_badge">Engine v1.2</span>
+                    <h4 class="lcas_heading">Живые персонажи и Анти-Слоп</h4>
                 </div>
-                <input id="las_enabled" type="checkbox" class="las_checkbox" />
-            </label>
+                <label class="lcas_switch" title="Включить или выключить расширение">
+                    <input type="checkbox" id="lcas_enabled" />
+                    <span class="lcas_slider"></span>
+                </label>
+            </div>
+            <p class="lcas_subtext">
+                Блокирует штампы Gemini, убирает бытовой командирский тон, развивает инициативу бота и разнообразит тактильность.
+            </p>
         </div>
 
-        <div class="las_card">
-            <div class="las_card_header">
-                <i class="fa-solid fa-brain"></i>
-                <span>Живое поведение и логика</span>
+        <div class="lcas_card">
+            <div class="lcas_section_title">Модули поведения и стиля</div>
+
+            <label class="lcas_toggle_row" for="lcas_anti_slop">
+                <div class="lcas_toggle_info">
+                    <span class="lcas_toggle_name">Фильтр штампов и клише (Anti-Slop)</span>
+                    <span class="lcas_toggle_desc">Запрещает побелевшие костяшки, запах озона/бергамота, хриплый шёпот и потемневшие глаза</span>
+                </div>
+                <input type="checkbox" id="lcas_anti_slop" class="lcas_checkbox" />
+            </label>
+
+            <label class="lcas_toggle_row" for="lcas_anti_bossy">
+                <div class="lcas_toggle_info">
+                    <span class="lcas_toggle_name">Запрет бытовых приказов (No Bossy Caring)</span>
+                    <span class="lcas_toggle_desc">Убирает «марш в кровать», «пей давай», «садись и рассказывай», сохраняя живые споры и ссоры</span>
+                </div>
+                <input type="checkbox" id="lcas_anti_bossy" class="lcas_checkbox" />
+            </label>
+
+            <label class="lcas_toggle_row" for="lcas_initiative">
+                <div class="lcas_toggle_info">
+                    <span class="lcas_toggle_name">Инициатива и анти-позитивный биас</span>
+                    <span class="lcas_toggle_desc">Бот сам двигает сцену вперёд, не сглаживает конфликты и держит характер без резких качелей</span>
+                </div>
+                <input type="checkbox" id="lcas_initiative" class="lcas_checkbox" />
+            </label>
+
+            <label class="lcas_toggle_row" for="lcas_body_diversity">
+                <div class="lcas_toggle_info">
+                    <span class="lcas_toggle_name">Разнообразие тела и стоп-поцелуи</span>
+                    <span class="lcas_toggle_desc">Заменяет вечный захват подбородка/рук на живую пластику тела; запрещает внезапные поцелуи в губы</span>
+                </div>
+                <input type="checkbox" id="lcas_body_diversity" class="lcas_checkbox" />
+            </label>
+
+            <div class="lcas_field_block">
+                <label class="lcas_field_label" for="lcas_romance_status">Статус отношений в текущем чате</label>
+                <select id="lcas_romance_status" class="lcas_select">
+                    <option value="none">Нет романтики (запрет поцелуев в губы)</option>
+                    <option value="slowburn">Медленное сближение (без поцелуев в губы)</option>
+                    <option value="established">Пара / Установленная романтика (поцелуи разрешены)</option>
+                </select>
             </div>
+        </div>
 
-            <label class="las_switch_row" for="las_anti_slop_prompt">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Радар штампов Gemini</span>
-                    <span class="las_switch_sub">Блокирует повторы из последних сообщений чата</span>
+        <div class="lcas_card">
+            <div class="lcas_section_title">Невидимый Хирург (Постобработка)</div>
+
+            <label class="lcas_toggle_row" for="lcas_surgeon_enabled">
+                <div class="lcas_toggle_info">
+                    <span class="lcas_toggle_name">Авто-редактура слопа перед показом</span>
+                    <span class="lcas_toggle_desc">Если модель выдала штамп или бытовой приказ, Хирург перепишет проблемные фразы</span>
                 </div>
-                <input id="las_anti_slop_prompt" type="checkbox" class="las_checkbox" />
+                <input type="checkbox" id="lcas_surgeon_enabled" class="lcas_checkbox" />
             </label>
 
-            <label class="las_switch_row" for="las_anti_bossy">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Анти-командир (равенство)</span>
-                    <span class="las_switch_sub">Убирает бытовые приказы («иди спать»), сохраняя эмоции в ссорах</span>
+            <label class="lcas_toggle_row" for="lcas_hide_streaming">
+                <div class="lcas_toggle_info">
+                    <span class="lcas_toggle_name">Скрывать сырой текст при генерации</span>
+                    <span class="lcas_toggle_desc">Показывает плашку ожидания при правке (нажмите на плашку пальцем, чтобы сразу скрыть её)</span>
                 </div>
-                <input id="las_anti_bossy" type="checkbox" class="las_checkbox" />
+                <input type="checkbox" id="lcas_hide_streaming" class="lcas_checkbox" />
             </label>
 
-            <label class="las_switch_row" for="las_living_dynamics">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Инициатива и анти-позитивный биас</span>
-                    <span class="las_switch_sub">Персонаж сам двигает сюжет и не тает без причины</span>
-                </div>
-                <input id="las_living_dynamics" type="checkbox" class="las_checkbox" />
-            </label>
+            <div class="lcas_field_block">
+                <label class="lcas_field_label" for="lcas_refresh_mode">Способ обновления чата после правок</label>
+                <select id="lcas_refresh_mode" class="lcas_select">
+                    <option value="reload_chat">Перезагрузить чат (reloadCurrentChat — рекомендуется)</option>
+                    <option value="update_block">Быстрое обновление блока (updateMessageBlock)</option>
+                    <option value="reload_page">Полная перезагрузка страницы (location.reload)</option>
+                </select>
+            </div>
+        </div>
 
-            <label class="las_switch_row" for="las_full_body_tactile">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Органическая тактильность (всё тело)</span>
-                    <span class="las_switch_sub">Против зацикленности на руках, подбородке и голове</span>
-                </div>
-                <input id="las_full_body_tactile" type="checkbox" class="las_checkbox" />
-            </label>
+        <div class="lcas_card">
+            <div class="lcas_section_title">API-подключение Хирурга (Безопасно)</div>
+            <p class="lcas_subtext">
+                Работает строго через внутренние сервисы SillyTavern. Ключи никуда не передаются.
+            </p>
 
-            <div class="las_field_box">
-                <label class="las_label" for="las_intimacy_mode">Режим допустимой близости:</label>
-                <select id="las_intimacy_mode" class="text_pole las_select">
-                    <option value="slowburn">Слоубёрн (без поцелуев до обсуждения чувств)</option>
-                    <option value="auto">Авто-определение по истории чата</option>
-                    <option value="strict_platonic">Строгая платоника (враги / друзья / семья)</option>
-                    <option value="established">Устоявшаяся пара (полная тактильность)</option>
+            <div class="lcas_field_block">
+                <label class="lcas_field_label" for="lcas_api_mode">Источник API для переписывания</label>
+                <select id="lcas_api_mode" class="lcas_select">
+                    <option value="main">Текущее активное подключение Таверны (Main API)</option>
+                    <option value="profile">Профиль из Connection Manager (Connection Profiles)</option>
                 </select>
             </div>
 
-            <div class="las_field_box las_inline_field">
-                <label class="las_label" for="las_prompt_depth">Глубина инъекции (Depth):</label>
-                <input id="las_prompt_depth" type="number" class="text_pole las_num_input" min="0" max="10" step="1" />
+            <div class="lcas_field_block" id="lcas_profile_block" style="display: none;">
+                <div class="lcas_label_with_btn">
+                    <label class="lcas_field_label" for="lcas_connection_profile">Профиль подключения Таверны</label>
+                    <button type="button" id="lcas_refresh_profiles" class="lcas_icon_btn" title="Обновить список профилей">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                </div>
+                <select id="lcas_connection_profile" class="lcas_select">
+                    <option value="">-- Выберите профиль подключения --</option>
+                </select>
+            </div>
+
+            <div class="lcas_field_block">
+                <label class="lcas_field_label" for="lcas_max_tokens">Лимит токенов для ответа Хирурга</label>
+                <input type="number" id="lcas_max_tokens" class="lcas_input" min="256" max="16384" step="128" value="4096" />
             </div>
         </div>
 
-        <div class="las_card">
-            <div class="las_card_header">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                <span>Невидимый Хирург (до показа текста)</span>
-            </div>
-
-            <label class="las_switch_row" for="las_hide_streaming">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Мягкая шторка во время генерации</span>
-                    <span class="las_switch_sub">Скрывает сырой поток текста, пока идёт проверка</span>
-                </div>
-                <input id="las_hide_streaming" type="checkbox" class="las_checkbox" />
-            </label>
-
-            <label class="las_switch_row" for="las_auto_surgeon">
-                <div class="las_switch_text">
-                    <span class="las_switch_title">Авто-переписывание слопа</span>
-                    <span class="las_switch_sub">Точечно правит кринжовые фразы через generateRaw</span>
-                </div>
-                <input id="las_auto_surgeon" type="checkbox" class="las_checkbox" />
-            </label>
-        </div>
-
-        <div class="las_card">
-            <div class="las_card_header">
-                <i class="fa-solid fa-filter"></i>
-                <span>Фильтры и стоп-фразы</span>
-            </div>
-
-            <div class="las_quick_add_row">
-                <input id="las_quick_phrase" type="text" class="text_pole las_pill_input" placeholder="Быстро добавить бесячую фразу..." />
-                <button id="las_quick_add_btn" class="menu_button las_pill_btn las_primary_btn" type="button" title="Добавить в список слопа">
-                    <i class="fa-solid fa-plus"></i>
+        <div class="lcas_card">
+            <div class="lcas_section_title">Управление фразами и проверка</div>
+            <div class="lcas_button_grid">
+                <button id="lcas_open_banlist_btn" class="lcas_btn lcas_btn_primary" type="button">
+                    <i class="fa-solid fa-sliders"></i> Настроить бан-лист и правила
                 </button>
-            </div>
-
-            <div class="las_field_box">
-                <div class="las_label_row">
-                    <label class="las_label" for="las_slop_list">Штампы и клише Gemini:</label>
-                    <span id="las_slop_count" class="las_badge">0</span>
-                </div>
-                <textarea id="las_slop_list" class="text_pole las_textarea" rows="5" placeholder="костяшки побелели&#10;запах озона"></textarea>
-            </div>
-
-            <div class="las_field_box">
-                <div class="las_label_row">
-                    <label class="las_label" for="las_bossy_list">Бытовой командирский спам:</label>
-                    <span id="las_bossy_count" class="las_badge">0</span>
-                </div>
-                <textarea id="las_bossy_list" class="text_pole las_textarea" rows="4" placeholder="иди спать&#10;садись и рассказывай"></textarea>
-            </div>
-
-            <div class="las_button_row">
-                <button id="las_fix_last_btn" class="menu_button las_pill_btn las_primary_btn" type="button">
+                <button id="lcas_rewrite_last_btn" class="lcas_btn lcas_btn_secondary" type="button">
                     <i class="fa-solid fa-wand-magic-sparkles"></i> Переписать последний ответ
-                </button>
-                <button id="las_reset_defaults_btn" class="menu_button las_pill_btn las_secondary_btn" type="button">
-                    <i class="fa-solid fa-rotate-left"></i> Сброс
                 </button>
             </div>
         </div>
